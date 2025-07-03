@@ -6,6 +6,12 @@ import requests
 st.set_page_config(page_title="Fraud Detection Dashboard", layout="wide")
 st.title("💳 Real-Time Fraud Detection System")
 
+# Webhook input
+webhook_url = st.text_input(
+    "🔗 Enter your n8n Webhook URL (from ngrok):",
+    placeholder="https://<your-ngrok-subdomain>.ngrok-free.app/webhook/fraud-alert"
+)
+
 # File uploader
 uploaded_file = st.file_uploader("📤 Upload transaction data (CSV)", type="csv")
 
@@ -36,15 +42,15 @@ if uploaded_file:
     # Ensure all model columns are present
     for col in model.feature_names_in_:
         if col not in df_model.columns:
-            df_model[col] = 0  # Add missing dummy column
-    df_model = df_model[model.feature_names_in_]  # Align column order
+            df_model[col] = 0
+    df_model = df_model[model.feature_names_in_]
 
     # Predict
     st.subheader("🧠 Running Predictions...")
     preds = model.predict(df_model)
     df['Prediction'] = preds
 
-    # Show full prediction table
+    # Show results
     st.subheader("✅ Prediction Results")
     st.dataframe(
         df.style.applymap(
@@ -53,36 +59,34 @@ if uploaded_file:
         )
     )
 
-    # Extract fraud predictions
     frauds = df[df['Prediction'] == 1]
     fraud_count = len(frauds)
-
     st.subheader(f"⚠️ Detected Fraudulent Transactions ({fraud_count})")
 
     if fraud_count > 0:
         st.dataframe(frauds)
 
-        st.success("🚨 Sending fraud alerts to n8n...")
+        if webhook_url:
+            st.success("🚨 Sending fraud alerts to n8n...")
 
-        # ✅ Updated webhook URL to use ngrok public link
-        webhook_url = "https://9a6e-2409-40f4-304a-15d-313d-7a4-c889-476a.ngrok-free.app/webhook/fraud-alert"
+            for idx, row in frauds.iterrows():
+                payload = row.to_dict()
+                payload["Prediction"] = 1
 
-        for idx, row in frauds.iterrows():
-            payload = row.to_dict()
-            payload["Prediction"] = 1  # Ensure it's included
-
-            try:
-                res = requests.post(webhook_url, json=payload)
-                if res.status_code == 200:
-                    st.info(f"✅ Alert sent for transaction at index {idx}")
-                else:
-                    st.warning(f"⚠️ Failed to send alert (HTTP {res.status_code}) at index {idx}")
-            except Exception as e:
-                st.error(f"❌ Exception sending alert at index {idx}: {e}")
+                try:
+                    res = requests.post(webhook_url, json=payload)
+                    if res.status_code == 200:
+                        st.info(f"✅ Alert sent for transaction at index {idx}")
+                    else:
+                        st.warning(f"⚠️ Failed to send alert (HTTP {res.status_code}) at index {idx}")
+                except Exception as e:
+                    st.error(f"❌ Exception sending alert at index {idx}: {e}")
+        else:
+            st.warning("⚠️ Please enter your ngrok webhook URL above to send alerts.")
     else:
         st.info("✅ No fraud detected in this dataset.")
 
-    # Download options
+    # Download buttons
     col1, col2 = st.columns(2)
     with col1:
         st.download_button(
